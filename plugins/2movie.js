@@ -1,207 +1,172 @@
 const { cmd } = require('../lib/command');
 const axios = require('axios');
 
-// Function to search movies using SinhalaSub and ZoomSub APIs
+// Search movies from SinhalaSub and ZoomSub
 async function searchMovies(query) {
-    const searchApis = [
+    const apis = [
         {
             url: `https://suhas-bro-api.vercel.app/movie/sinhalasub/search?text=${encodeURIComponent(query)}`,
             name: "SinhalaSub",
-            parseResults: (data) => data.result?.map(item => ({
-                title: item.title,
-                link: item.link,
-                year: item.year || "N/A",
-            })) || [],
         },
         {
             url: `https://suhas-bro-api.vercel.app/movie/zoom/search?text=${encodeURIComponent(query)}`,
             name: "ZoomSub",
-            parseResults: (data) => data.result?.map(item => ({
-                title: item.title,
-                link: item.link,
-                year: item.year || "N/A",
-            })) || [],
         },
     ];
 
-    let allResults = [];
-    let errorMessages = [];
+    let allResults = [], errors = [];
 
-    for (const api of searchApis) {
+    for (const api of apis) {
         try {
-            const response = await axios.get(api.url, { timeout: 10000 });
-            const results = api.parseResults(response.data);
-            if (results.length > 0) {
-                allResults = allResults.concat(results.map(result => ({
-                    ...result,
+            const res = await axios.get(api.url, { timeout: 10000 });
+            const parsed = Array.isArray(res.data.result)
+                ? res.data.result.map(x => ({
+                    title: x.title,
+                    link: x.link,
+                    year: x.year || "N/A",
                     source: api.name,
-                })));
-            } else {
-                errorMessages.push(`${api.name}: No results found`);
-            }
+                }))
+                : [];
+            allResults.push(...parsed);
         } catch (err) {
-            errorMessages.push(`${api.name}: ${err.message}`);
+            errors.push(`${api.name}: ${err.message}`);
         }
     }
 
-    return { results: allResults.slice(0, 10), errors: errorMessages };
+    return { results: allResults.slice(0, 10), errors };
 }
 
-// Function to fetch movie details and download links
-async function getMovieDetails(movieUrl) {
-    const apiUrl = `https://suhas-bro-api.vercel.app/movie/sinhalasub/movie?url=${encodeURIComponent(movieUrl)}`;
+// Fetch movie details
+async function getMovieDetails(url) {
     try {
-        const response = await axios.get(apiUrl, { timeout: 10000 });
-        const movieData = response.data.result;
-        if (!movieData || !movieData.dl_links || movieData.dl_links.length === 0) {
-            throw new Error("No download links found");
-        }
+        const res = await axios.get(`https://suhas-bro-api.vercel.app/movie/sinhalasub/movie?url=${encodeURIComponent(url)}`, { timeout: 10000 });
+        const movie = res.data.result;
+        if (!movie || !Array.isArray(movie.dl_links) || movie.dl_links.length === 0) throw new Error("No download links found.");
         return {
-            title: movieData.title,
-            imdb: movieData.imdb || "N/A",
-            date: movieData.date || "N/A",
-            country: movieData.country || "N/A",
-            runtime: movieData.runtime || "N/A",
-            image: movieData.image || "",
-            dl_links: movieData.dl_links.map(link => ({
-                quality: link.quality,
-                size: link.size,
-                link: link.link,
+            title: movie.title,
+            imdb: movie.imdb || "N/A",
+            date: movie.date || "N/A",
+            country: movie.country || "N/A",
+            runtime: movie.runtime || "N/A",
+            image: movie.image || "",
+            dl_links: movie.dl_links.map(x => ({
+                quality: x.quality,
+                size: x.size,
+                link: x.link,
             })),
         };
-    } catch (err) {
-        throw new Error(`Failed to fetch movie details: ${err.message}`);
+    } catch (e) {
+        throw new Error(`Failed to fetch details: ${e.message}`);
     }
 }
 
+// Command: ck
 cmd({
     pattern: "ck",
     alias: ["film"],
     react: "🎬",
-    desc: "Search and download movies from SinhalaSub and ZoomSub",
+    desc: "Search and download Sinhala-subbed movies",
     category: "movie",
     filename: __filename,
-},
-async (conn, mek, m, { from, q, reply }) => {
+}, async (conn, mek, m, { from, q, reply }) => {
     try {
-        // Step 1: Validate input query
-        if (!q) {
-            return await reply("*Please provide a movie name to search! (e.g., Deadpool)*");
-        }
+        if (!q) return reply("*Please provide a movie name to search (e.g., 'Deadpool')*");
 
-        // Step 2: Search movies
         const { results, errors } = await searchMovies(q);
-        if (results.length === 0) {
-            return await reply(`*No results found for:* "${q}"\n${errors.join('\n')}`);
-        }
+        if (results.length === 0) return reply(`*No results found for:* "${q}"\n${errors.join('\n')}`);
 
-        // Step 3: Send search results to user
-        let resultsMessage = `✨ *GOJO MD MOVIE DOWNLOADER* ✨\n\n🎥 *Search Results for* "${q}" (Date: May 25, 2025, 10:35 AM +0530):\n\n`;
-        results.forEach((result, index) => {
-            resultsMessage += `*${index + 1}.* ${result.title} (${result.year}) [${result.source}]\n🔗 Link: ${result.link}\n\n`;
+        let msg = `✨ *GOJO MD MOVIE DOWNLOADER* ✨\n\n🎥 *Results for* "${q}":\n\n`;
+        results.forEach((r, i) => {
+            msg += `*${i + 1}.* ${r.title} (${r.year}) [${r.source}]\n🔗 ${r.link}\n\n`;
         });
-        resultsMessage += `\n📩 *Please reply with the number of the movie you want to download.*`;
+        msg += `📩 *Reply with the number of the movie to continue.*`;
 
-        const sentMsg = await conn.sendMessage(from, { text: resultsMessage }, { quoted: mek });
-        const messageID = sentMsg.key.id;
+        const sent = await conn.sendMessage(from, { text: msg }, { quoted: mek });
+        const replyID = sent.key.id;
 
-        // Step 4: Wait for user to select a movie
-        conn.addReplyTracker(messageID, async (mek, messageType) => {
+        conn.addReplyTracker(replyID, async (mek, res) => {
             if (!mek.message) return;
-            const from = mek.key.remoteJid;
-            const selectedNumber = parseInt(messageType.trim());
-            if (!isNaN(selectedNumber) && selectedNumber > 0 && selectedNumber <= results.length) {
-                const selectedMovie = results[selectedNumber - 1];
+            const choice = parseInt(res.trim());
+            if (isNaN(choice) || choice < 1 || choice > results.length) return reply("❌ Invalid number. Try again.");
 
-                // Step 5: Fetch movie details
-                let movieData;
-                try {
-                    movieData = await getMovieDetails(selectedMovie.link);
-                } catch (err) {
-                    return await reply(`*Error fetching movie details:* ${err.message}`);
+            const selected = results[choice - 1];
+
+            let movie;
+            try {
+                movie = await getMovieDetails(selected.link);
+            } catch (err) {
+                return reply(`*Error:* ${err.message}`);
+            }
+
+            let dlMsg = `🎬 *${movie.title}*\n\n*Available Downloads:*\n`;
+            movie.dl_links.forEach((x, i) => {
+                dlMsg += `*${i + 1}.* ${x.quality} - ${x.size}\n\n`;
+            });
+            dlMsg += `📩 *Reply with a number to download in that quality.*`;
+
+            const sent2 = await conn.sendMessage(from, { text: dlMsg }, { quoted: mek });
+            const reply2ID = sent2.key.id;
+
+            conn.addReplyTracker(reply2ID, async (mek, res2) => {
+                if (!mek.message) return;
+                const choice2 = parseInt(res2.trim());
+                if (isNaN(choice2) || choice2 < 1 || choice2 > movie.dl_links.length) {
+                    return reply("❌ Invalid number. Try again.");
                 }
 
-                // Step 6: Send available download links
-                let downloadMessage = `🎥 *${movieData.title}*\n\n*Available Download Links:*\n`;
-                movieData.dl_links.forEach((link, index) => {
-                    downloadMessage += `*${index + 1}.* ${link.quality} - ${link.size}\n\n`;
-                });
-                downloadMessage += `\n📩 *Please reply with the number of the quality you want to download.*`;
+                const file = movie.dl_links[choice2 - 1];
 
-                const sentDownloadMsg = await conn.sendMessage(from, { text: downloadMessage }, { quoted: mek });
-                const downloadMessageID = sentDownloadMsg.key.id;
-
-                // Step 7: Wait for user to select a quality
-                conn.addReplyTracker(downloadMessageID, async (mek, downloadMessageType) => {
-                    if (!mek.message) return;
-                    const from = mek.key.remoteJid;
-                    const selectedQuality = parseInt(downloadMessageType.trim());
-                    if (!isNaN(selectedQuality) && selectedQuality > 0 && selectedQuality <= movieData.dl_links.length) {
-                        const selectedLink = movieData.dl_links[selectedQuality - 1];
-
-                        // Step 8: Send the movie as a document
-                        await conn.sendMessage(from, { react: { text: '⬇️', key: sentDownloadMsg.key } });
-
-                        let downloadMessag = `
+                const caption = `
 🎬 *GOJO MD CINEMA* 🎥  
-╔══════════════════════════╗  
+╔══════════════════════╗  
    Your Gateway to  
     🎥 Entertainment 🎥  
-╚══════════════════════════╝  
+╚══════════════════════╝  
 
-✨ 🎥 **🎞 Movie:** *${movieData.title}*  
-
-⭐ *IMDB Rating:* *${movieData.imdb}*  
-📅 *Release Date:* *${movieData.date}*  
-🌍 *Country:* *${movieData.country}*  
-⏳ *Duration:* *${movieData.runtime}*  
+✨ 🎞 *${movie.title}*  
+⭐ *IMDB:* ${movie.imdb}  
+📅 *Date:* ${movie.date}  
+🌍 *Country:* ${movie.country}  
+⏳ *Length:* ${movie.runtime}  
 
 ╔═════ஜ۩۞۩ஜ═════╗  
 © 2025 *GOJO MD*  
-🚀 *POWERED BY SAYURA*  
-📡 _Stay Connected. Stay Entertained!_  
+🚀 POWERED BY SAYURA  
 ╚═════ஜ۩۞۩ஜ═════╝`;
 
-                        await conn.sendMessage(from, { react: { text: '⬆️', key: sentDownloadMsg.key } });
+                await conn.sendMessage(from, { react: { text: '⬇️', key: sent2.key } });
 
-                        await conn.sendMessage(from, {
-                            document: { url: selectedLink.link },
-                            mimetype: "video/mp4",
-                            fileName: `${movieData.title} - ${selectedLink.quality}.mp4`,
-                            caption: downloadMessag,
-                            contextInfo: {
-                                mentionedJid: [],
-                                groupMentions: [],
-                                forwardingScore: 999,
-                                isForwarded: true,
-                                forwardedNewsletterMessageInfo: {
-                                    
-                                    newsletterName: "© GOJO MD💚",
-                                    serverMessageId: 999,
-                                },
-                                externalAdReply: {
-                                    title: movieData.title,
-                                    body: '🎬 *GOJO-MD* 🎥',
-                                    mediaType: 1,
-                                    sourceUrl: selectedMovie.link,
-                                    thumbnailUrl: movieData.image,
-                                    renderLargerThumbnail: true,
-                                    showAdAttribution: true,
-                                },
-                            },
-                        }, { quoted: mek });
+                await conn.sendMessage(from, {
+                    document: { url: file.link },
+                    mimetype: "video/mp4",
+                    fileName: `${movie.title} - ${file.quality}.mp4`,
+                    caption,
+                    contextInfo: {
+                        forwardingScore: 999,
+                        isForwarded: true,
+                        forwardedNewsletterMessageInfo: {
+                            newsletterJid: '120363401755639074@newsletter',
+                            newsletterName: "© GOJO MD💚",
+                            serverMessageId: 999,
+                        },
+                        externalAdReply: {
+                            title: movie.title,
+                            body: '🎬 *GOJO-MD* 🎥',
+                            mediaType: 1,
+                            sourceUrl: selected.link,
+                            thumbnailUrl: movie.image,
+                            renderLargerThumbnail: true,
+                            showAdAttribution: true,
+                        },
+                    },
+                }, { quoted: mek });
 
-                        await conn.sendMessage(from, { react: { text: '✅', key: sentDownloadMsg.key } });
-                    } else {
-                        await reply("Invalid selection. Please reply with a valid number.");
-                    }
-                });
-            } else {
-                await reply("Invalid selection. Please reply with a valid number.");
-            }
+                await conn.sendMessage(from, { react: { text: '✅', key: sent2.key } });
+            });
         });
+
     } catch (e) {
-        console.error("Error during movie download:", e.message, e.stack);
-        reply(`*An error occurred while processing your request:* ${e.message}`);
+        console.error("Movie plugin error:", e.stack);
+        return reply(`❌ Error: ${e.message}`);
     }
 });
