@@ -1,45 +1,28 @@
 const { cmd } = require('../lib/command');
 const axios = require('axios');
 
-// Search movies from SinhalaSub and ZoomSub
+// Search movies from ZoomSub only
 async function searchMovies(query) {
-    const apis = [
-        {
-            url: `https://suhas-bro-api.vercel.app/movie/sinhalasub/search?text=${encodeURIComponent(query)}`,
-            name: "SinhalaSub",
-        },
-        {
-            url: `https://suhas-bro-api.vercel.app/movie/zoom/search?text=${encodeURIComponent(query)}`,
-            name: "ZoomSub",
-        },
-    ];
-
-    let allResults = [], errors = [];
-
-    for (const api of apis) {
-        try {
-            const res = await axios.get(api.url, { timeout: 10000 });
-            const parsed = Array.isArray(res.data.result)
-                ? res.data.result.map(x => ({
-                    title: x.title,
-                    link: x.link,
-                    year: x.year || "N/A",
-                    source: api.name,
-                }))
-                : [];
-            allResults.push(...parsed);
-        } catch (err) {
-            errors.push(`${api.name}: ${err.message}`);
-        }
+    const api = `https://suhas-bro-api.vercel.app/movie/zoom/search?text=${encodeURIComponent(query)}`;
+    try {
+        const res = await axios.get(api, { timeout: 10000 });
+        const parsed = Array.isArray(res.data.result)
+            ? res.data.result.map(x => ({
+                title: x.title,
+                link: x.link,
+                year: x.year || "N/A",
+            }))
+            : [];
+        return { results: parsed.slice(0, 10), error: null };
+    } catch (err) {
+        return { results: [], error: err.message };
     }
-
-    return { results: allResults.slice(0, 10), errors };
 }
 
-// Fetch movie details
+// Fetch movie details from ZoomSub
 async function getMovieDetails(url) {
     try {
-        const res = await axios.get(`https://suhas-bro-api.vercel.app/movie/sinhalasub/movie?url=${encodeURIComponent(url)}`, { timeout: 10000 });
+        const res = await axios.get(`https://suhas-bro-api.vercel.app/movie/zoom/movie?url=${encodeURIComponent(url)}`, { timeout: 10000 });
         const movie = res.data.result;
         if (!movie || !Array.isArray(movie.dl_links) || movie.dl_links.length === 0) throw new Error("No download links found.");
         return {
@@ -60,24 +43,24 @@ async function getMovieDetails(url) {
     }
 }
 
-// Command: ck
+// Main command
 cmd({
     pattern: "ck",
     alias: ["film"],
     react: "🎬",
-    desc: "Search and download Sinhala-subbed movies",
+    desc: "Search and download Sinhala-subbed movies from ZoomSub",
     category: "movie",
     filename: __filename,
 }, async (conn, mek, m, { from, q, reply }) => {
     try {
         if (!q) return reply("*Please provide a movie name to search (e.g., 'Deadpool')*");
 
-        const { results, errors } = await searchMovies(q);
-        if (results.length === 0) return reply(`*No results found for:* "${q}"\n${errors.join('\n')}`);
+        const { results, error } = await searchMovies(q);
+        if (results.length === 0) return reply(`*No results found for:* "${q}"\n${error ? `Error: ${error}` : ""}`);
 
         let msg = `✨ *GOJO MD MOVIE DOWNLOADER* ✨\n\n🎥 *Results for* "${q}":\n\n`;
         results.forEach((r, i) => {
-            msg += `*${i + 1}.* ${r.title} (${r.year}) [${r.source}]\n🔗 ${r.link}\n\n`;
+            msg += `*${i + 1}.* ${r.title} (${r.year})\n🔗 ${r.link}\n\n`;
         });
         msg += `📩 *Reply with the number of the movie to continue.*`;
 
