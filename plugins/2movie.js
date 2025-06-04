@@ -109,8 +109,7 @@ async (conn, mek, m, { from, q, reply }) => {
         const messageID = sentMsg.key.id;
 
         // Step 4: Wait for user to select a movie
-        conn.addReplyTracker(messageID, async (mek, messageType) => {
-            if (!mek.message) return;
+        
             const from = mek.key.remoteJid;
             const selectedNumber = parseInt(messageType.trim());
             if (!isNaN(selectedNumber) && selectedNumber > 0 && selectedNumber <= results.length) {
