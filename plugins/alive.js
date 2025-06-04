@@ -14,7 +14,7 @@ cmd({
     try {
         // Send image + caption
         await gojo.sendMessage(from, {
-            image: { url: "https://raw.githubusercontent.com/gojosathory1/My-helper/refs/heads/main/file_00000000d0dc61f597f450261ecfe33f%20(1).png" },
+            image: { url: "https://raw.githubusercontent.com/sayura19/Helper/refs/heads/main/file_00000000d0dc61f597f450261ecfe33f%20(1).png" },
             caption: `⚡ GOJO MAX is ALIVE ⚡\n\nSystem Status: ONLINE ✅\nBot Power Level: ∞\n\nCreated & Managed by: sayura\n\nType .menu to explore commands!`
         }, { quoted: mek });
 
