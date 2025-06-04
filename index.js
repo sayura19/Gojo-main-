@@ -703,14 +703,15 @@ editedMessage: {
   }, {})
 }	    
 
-const smoviePlugin = require('./plugins/smovie'); // Add to the top
 
-conn.ev.on('messages.upsert', async ({ messages }) => {
+const { handleReply } = require('./plugins/smovie.js');
+
+// Your connection setup code, e.g. with baileys, wwebjs etc.
+
+conn.ev.on("messages.upsert", async ({ messages }) => {
     const mek = messages[0];
-    await smoviePlugin.handleReply(conn, mek); // Call reply handler here
+    await handleReply(conn, mek);
 });
-	
-
       
 
 //==================================Button================================
