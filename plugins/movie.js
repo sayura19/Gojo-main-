@@ -8,7 +8,7 @@ const NodeCache = require('node-cache');
 const searchCache = new NodeCache({ stdTTL: 60, checkperiod: 120 });
 
 cmd({
-  pattern: "film",
+  pattern: "movie",
   react: "🎬",
   desc: "Search and download movies",
   category: "media",
