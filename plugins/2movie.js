@@ -1,4 +1,4 @@
-const { cmd } = require('../command');
+const { cmd } = require('../lib/command');
 const axios = require('axios');
 
 // Function to get current date and time in +0530 timezone
