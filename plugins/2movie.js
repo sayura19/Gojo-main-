@@ -1,77 +1,57 @@
-const config = require('../settings')
-const { cmd, commands } = require('../lib/command')
-const { getBuffer, fetchJson } = require('../lib/functions')
-const { sizeFormatter } = require('human-readable')
-const GDriveDl = require('../lib/gdrive.js'); // ✅ CORRECT
-const N_FOUND = "*I couldn't find anything :(*"
+const { cmd } = require('../lib/command');
+const { fetchJson, getBuffer } = require('../lib/functions');
+const config = require('../settings');
 
 cmd({
-  pattern: 'ck',
-  react: '🎬',
-  desc: 'සිංහල උපසිරැසි සහිත චිත්‍රපට සෙවීම (CineSubs)',
-  category: 'movie',
-  filename: __filename
-}, async (conn, m, mek, { from, q, prefix, reply }) => {
-  if (!q) return reply('📌 කරුණාකර චිත්‍රපටියේ නමක් සපයන්න. උදා: `.ck Deadpool`')
+  pattern: "ck",
+  alias: ["cine"],
+  react: "🎬",
+  desc: "CineSubs චිත්‍රපට සෙවීම",
+  category: "movie",
+  filename: __filename,
+}, async (conn, m, mek, { q, from, reply }) => {
+  if (!q) return reply("*🎬 කරුණාකර චිත්‍රපට නමක් ලබා දෙන්න.*");
 
   try {
-    const res = await fetchJson(`https://vajira-movie-api.vercel.app/api/cinesubs/search?q=${encodeURIComponent(q)}&apikey=vajiraofficial`)
-    const results = res?.data?.data?.data
+    const data = await fetchJson(`https://vajira-movie-api.vercel.app/api/cinesubs/search?q=${encodeURIComponent(q)}&apikey=vajiraofficial`);
+    const results = data?.data?.data;
 
-    if (!results || !results.length) return reply(`❌ *"${q}"* සඳහා කිසිවක් සොයාගෙන නැහැ.`)
+    if (!results?.length) return reply(`❌ *"${q}" සඳහා කිසිඳු ප්‍රතිඵලයක් හමු නොවුණි.*`);
 
-    let list = results.map((x, i) => ({
-      title: `${i + 1}`,
-      description: x.title,
-      rowId: `${prefix}ckdl ${x.link}|${x.title}`
-    }))
+    let msg = `🎬 *"${q}" සඳහා හමු වූ චිත්‍රපට:* \n\n`;
+    results.slice(0, 10).forEach((movie, i) => {
+      msg += `*${i + 1}.* ${movie.title} (${movie.year})\n${movie.link}\n\n`;
+    });
+    msg += "📥 *කරුණාකර ඉදිරියට යාමට අංකය reply කරන්න.*";
 
-    const sections = [{ title: "📽️ *CineSubs Results*", rows: list }]
+    const sent = await conn.sendMessage(from, { text: msg }, { quoted: mek });
+    const replyID = sent.key.id;
 
-    const listMessage = {
-      text: '',
-      footer: config.FOOTER,
-      title: '📥 ඔබට අවශ්‍ය චිත්‍රපටිය තෝරන්න',
-      buttonText: '🔢 තෝරන්න',
-      sections
-    }
+    conn.addReplyTracker(replyID, async (mek, res) => {
+      const index = parseInt(res.trim());
+      if (isNaN(index) || index < 1 || index > results.length) return reply("❌ වැරදි අංකයකි. නැවත උත්සාහ කරන්න.");
 
-    return await conn.replyList(from, listMessage, { quoted: mek })
+      const selected = results[index - 1];
+
+      const info = await fetchJson(`https://vajira-movie-api.vercel.app/api/cinesubs/movie?url=${selected.link}&apikey=vajiraofficial`);
+      const movie = info?.data?.data;
+
+      if (!movie || !movie.download || !movie.download.link) return reply("❌ බාගත කිරීමේ ලින්ක් නොමැත.");
+
+      await reply("📥 *ඔබේ චිත්‍රපටය බාගත කරමින් පවතී...*");
+
+      await conn.sendMessage(from, {
+        document: await getBuffer(movie.download.link),
+        fileName: `${movie.title}.mp4`,
+        mimetype: "video/mp4",
+        caption: `🎬 *${movie.title}*\n📅 *දිනය:* ${movie.date || "නොමැත"}\n🌐 *CineSubs චිත්‍රපටයක්*\n\n© 2025 GOJO MD`,
+      }, { quoted: mek });
+
+      await conn.sendMessage(from, { react: { text: '✅', key: mek.key } });
+    });
+
   } catch (e) {
-    console.error(e)
-    return reply('⚠️ දෝෂයක් ඇතිවුණා. පසුව උත්සහ කරන්න.')
+    console.error("CineSubs Error:", e.message);
+    reply("❌ *දෝෂයක් සිදු විය. පසුව නැවත උත්සාහ කරන්න.*");
   }
-})
-
-cmd({
-  pattern: 'ckdl',
-  dontAddCommandList: true,
-  filename: __filename
-}, async (conn, mek, m, { q, reply, from }) => {
-  if (!q) return reply('❌ Movie URL එකක් හෝ තොරතුරක් නොමැත.')
-
-  try {
-    const [url, title] = q.split('|')
-
-    const res = await fetchJson(`https://vajira-movie-api.vercel.app/api/cinesubs/movie?url=${url}&apikey=vajiraofficial`)
-    const movie = res?.data?.data?.moviedata
-
-    if (!movie?.download?.url) return reply('❌ මෙම චිත්‍රපටයට download link එකක් සොයාගත නොහැක.')
-
-    await reply('⬇️ චිත්‍රපටිය download කරමින් පවතියි. කරුණාකර මොහොතක් රැඳෙන්න...')
-
-    const msg = {
-      document: await getBuffer(movie.download.url),
-      fileName: `${movie.title}.mp4`,
-      mimetype: "video/mp4",
-      caption: `🎬 *${movie.title}*\n\n🗓️ දිනය: ${movie.date}\n🌍 රට: ${movie.country || "N/A"}\n\n© CineSubs | GOJO MD`,
-    }
-
-    await conn.sendMessage(from, msg, { quoted: mek })
-
-    await conn.sendMessage(from, { react: { text: '✅', key: mek.key } })
-  } catch (e) {
-    console.error(e)
-    return reply('⚠️ Movie එක ලබාගැනීමේදී දෝෂයක් සිදුවී ඇත.')
-  }
-})
+});
