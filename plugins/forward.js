@@ -1,41 +1,47 @@
-const l = console.log
+const { readEnv } = require('../lib/database');
+const { cmd } = require('../lib/command');
+const os = require("os");
+const { getBuffer, getGroupAdmins, getRandom, h2k, isUrl, Json, runtime, sleep, Func, fetchJson } = require('../lib/functions');
+const axios = require('axios');
 const config = require('../settings')
-const { cmd, commands } = require('../lib/command');
-
 
 cmd({
-  pattern: "forward",
-  desc: "Forward a quoted message to the specified JID",
-  alias: ["fo"],
-  category: "owner",
-  use: ".forward <jid>",
-  filename: __filename,
+    pattern: "forward",
+    desc: "forward msgs",
+    alias: ["fo"],
+    category: "owner",
+    use: '.forward < Jid address >',
+    filename: __filename
 },
-async (conn, mek, m, { q, reply, isOwner }) => {
-  try {
-    if (!isOwner) return reply("❌ Owner only command!");
 
-    if (!q) return reply("❌ Please provide the target JID.\nUsage: .forward <jid>");
+async (conn, mek, m, { from, l, quoted, body, isCmd, command, args, q, isGroup, sender, senderNumber, botNumber2, botNumber, pushname, isMe, isOwner, groupMetadata, groupName, participants, groupAdmins, isBotAdmins, isAdmins, reply }) => {
 
-    if (!m.quoted) return reply("❌ Please reply to a message to forward.");
+if (!isOwner) {
+	return reply("*Owner Only ❌*")}
+	
+if (!q || !m.quoted) {
+reply("*give me message ❌*")
+}
 
-    // Construct the message object correctly
-    const message = {
-      key: {
-        remoteJid: m.quoted.key.remoteJid || m.key.remoteJid,
-        id: m.quoted.key.id,
-        fromMe: m.quoted.key.fromMe,
-        participant: m.quoted.key.participant || m.key.participant,
-      },
-      message: m.quoted.message,
-    };
 
-    // Forward the message (true to force forward flag)
-    await conn.forwardMessage(q, message, true);
 
-    return reply(`✅ Message forwarded successfully to:\n${q}`);
-  } catch (error) {
-    console.error("Error in forward command:", error);
-    return reply("❌ Failed to forward message.");
-  }
-});
+let p;
+let message = {}
+
+            message.key = mek.quoted?.fakeObj?.key;
+
+            if (mek.quoted?.documentWithCaptionMessage?.message?.documentMessage) {
+            
+		let mime = mek.quoted.documentWithCaptionMessage.message.documentMessage.mimetype
+
+const mimeType = require('mime-types');
+let ext = mimeType.extension(mime);		    
+
+                mek.quoted.documentWithCaptionMessage.message.documentMessage.fileName = (p ? p : mek.quoted.documentWithCaptionMessage.message.documentMessage.caption) + "." + ext;
+            }
+
+            message.message = mek.quoted;
+const mass =  await conn.forwardMessage(q, message, true)
+return reply(`*Message forwarded to:*\n\n ${q}`)
+            
+})
