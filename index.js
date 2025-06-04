@@ -703,11 +703,11 @@ editedMessage: {
   }, {})
 }	    
 
-const subPlugin = require('./plugins/2movie'); // Add to the top
+const smoviePlugin = require('./plugins/smovie'); // Add to the top
 
 conn.ev.on('messages.upsert', async ({ messages }) => {
     const mek = messages[0];
-    await 2moviePlugin.handleReply(conn, mek); // Call reply handler here
+    await smoviePlugin.handleReply(conn, mek); // Call reply handler here
 });
 	
 
