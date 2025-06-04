@@ -16,7 +16,6 @@
     "@distube/ytdl-core":"^4.13.5",
     "@ffmpeg-installer/ffmpeg":"^1.1.0",
     "@kaveesha-sithum/derana-news":"latest",
-    "@sasmeee/wabetainfo":"^0.0.1",
     "@sl-code-lords/esana-news":"latest",
     "@sl-code-lords/image-library":"^1.0.0",
     "@sl-code-lords/photooxy":"^1.0.1",
