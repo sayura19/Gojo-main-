@@ -34,7 +34,7 @@ cmd({
         await conn.sendMessage(
             from,
             { document: buff, 
-             caption: `> *© Upload By ACD MD V2*`, 
+             caption: `> *© Upload By GOJO MD*`, 
              mimetype: "application/vnd.android.package-archive", 
              filename: `${appInfo.appname}.apk`,
            }, { quoted: mek }
