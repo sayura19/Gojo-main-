@@ -1,4 +1,4 @@
-const l = console.log
+const l = console.log;
 const { cmd } = require('../lib/command');
 const axios = require('axios');
 
@@ -53,7 +53,9 @@ cmd({
         const selectedMovie = data[selected - 1];
         let detail;
         try {
-            const url = `https://cinesubz-api-zazie.vercel.app/api/movie?url=${encodeURIComponent(selectedMovie.link)}`;
+            // FIX: Use movie slug (last part of URL path)
+            const movieSlug = selectedMovie.link.split("/").filter(Boolean).pop();
+            const url = `https://cinesubz-api-zazie.vercel.app/api/movie/${movieSlug}`;
             detail = await axios.get(url);
         } catch {
             return reply("❌ විස්තර ලබාගැනීමේදී දෝෂයක්.");
