@@ -1,6 +1,6 @@
 const config = require('../settings')
 const { cmd, commands } = require('../lib/command')
-const imageUrl = 'https://raw.githubusercontent.com/gojosathory1/My-helper/refs/heads/main/file_00000000d0dc61f597f450261ecfe33f%20(1).png';
+const imageUrl = 'https://raw.githubusercontent.com/sayura19/Helper/refs/heads/main/file_00000000d0dc61f597f450261ecfe33f%20(1).png';
 
 cmd({
     pattern: "menu",
