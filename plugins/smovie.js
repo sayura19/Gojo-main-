@@ -1,3 +1,4 @@
+const l = console.log
 const { cmd } = require('../lib/command');
 const axios = require('axios');
 
