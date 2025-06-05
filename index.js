@@ -703,14 +703,14 @@ editedMessage: {
   }, {})
 }	    
 
+const { handleReplyMessages } = require('./plugins/smovie.js'); // or wherever your code is
 
-const { handleReply } = require('./plugins/smovie.js');
-
-// Your connection setup code, e.g. with baileys, wwebjs etc.
-
-conn.ev.on("messages.upsert", async ({ messages }) => {
-    const mek = messages[0];
-    await handleReply(conn, mek);
+conn.ev.on("messages.upsert", async (update) => {
+  try {
+    await handleReplyMessages(conn, update);
+  } catch (e) {
+    console.error(e);
+  }
 });
       
 
