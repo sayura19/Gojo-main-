@@ -1,5 +1,9 @@
-const l = console.log;
-const { cmd } = require('../lib/command');
+const config = require('../settings')
+const { cmd, commands } = require('../lib/command')
+const { getBuffer, fetchJson } = require('../lib/functions')
+const { sizeFormatter } = require('human-readable')
+const GDriveDl = require('../lib/gdrive.js'); // ✅ CORRECT
+const N_FOUND = "*I couldn't find anything :(*"
 const axios = require('axios');
 
 const replyTrackers = new Map();
