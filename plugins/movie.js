@@ -1,28 +1,26 @@
-const l = console.log
-const config = require('../settings')
-const { cmd, commands } = require('../lib/command')  
+const l = console.log;
+const config = require('../settings');
+const { cmd, commands } = require('../lib/command');
 const axios = require('axios');
 const NodeCache = require('node-cache');
-
 
 const searchCache = new NodeCache({ stdTTL: 60, checkperiod: 120 });
 
 cmd({
   pattern: "movie",
   react: "🎬",
-  desc: "Search and download movies",
+  desc: "Search and download Movies/TV Series",
   category: "media",
   filename: __filename,
 }, async (conn, mek, m, { from, q, pushname }) => {
   if (!q) {
     await conn.sendMessage(from, {
-      text: `*🎬 Movie Search*\n\n📋 Usage: .film <movie name>\n📝 Example: .film Deadpool\n\n💡 Reply 'done' to stop the process`
+      text: `*🎬 Movie / TV Series Search*\n\n📋 Usage: .movie <name>\n📝 Example: .movie Breaking Bad\n\n💡 Reply 'done' to stop the process`
     }, { quoted: mek });
     return;
   }
 
   try {
-    
     const cacheKey = `film_search_${q.toLowerCase()}`;
     let searchData = searchCache.get(cacheKey);
 
@@ -31,25 +29,23 @@ cmd({
       let retries = 3;
       while (retries > 0) {
         try {
-          const searchResponse = await axios.get(searchUrl, { timeout: 10000 });
-          searchData = searchResponse.data;
+          const response = await axios.get(searchUrl, { timeout: 10000 });
+          searchData = response.data;
           break;
         } catch (error) {
           retries--;
-          if (retries === 0) throw new Error("Failed to retrieve movie data");
+          if (retries === 0) throw new Error("Failed to retrieve data. Try again later.");
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
 
       if (!searchData.status || !searchData.results || searchData.results.length === 0) {
-        throw new Error("No movies found");
+        throw new Error("No results found for the given name.");
       }
 
       searchCache.set(cacheKey, searchData);
     }
 
-    
-    let filmList = `*🎬 MOVIE SEARCH RESULTS*\n\n`;
     const films = searchData.results.map((film, index) => ({
       number: index + 1,
       title: film.title,
@@ -59,13 +55,13 @@ cmd({
       image: film.image
     }));
 
+    let filmList = `*🎬 SEARCH RESULTS*\n\n`;
     films.forEach(film => {
       filmList += `🎥 ${film.number}. *${film.title}*\n`;
       filmList += `   ⭐ IMDB: ${film.imdb}\n`;
       filmList += `   📅 Year: ${film.year}\n\n`;
     });
-    filmList += `🔢 Select a movie: Reply with the number\n`;
-    filmList += `❌ Reply 'done' to stop`;
+    filmList += `🔢 Select a number to choose\n❌ Reply 'done' to cancel`;
 
     const movieListMessage = await conn.sendMessage(from, {
       image: { url: films[0].image },
@@ -73,11 +69,8 @@ cmd({
     }, { quoted: mek });
 
     const movieListMessageKey = movieListMessage.key;
-
-    
     const downloadOptionsMap = new Map();
 
-   
     const selectionHandler = async (update) => {
       const message = update.messages[0];
       if (!message.message || !message.message.extendedTextMessage) return;
@@ -85,56 +78,43 @@ cmd({
       const replyText = message.message.extendedTextMessage.text.trim();
       const repliedToId = message.message.extendedTextMessage.contextInfo.stanzaId;
 
-      
       if (replyText.toLowerCase() === "done") {
         conn.ev.off("messages.upsert", selectionHandler);
         downloadOptionsMap.clear();
         await conn.sendMessage(from, {
-          text: `*✅ Process Completed*\n\n👋 Movie search ended!\nUse .film <movie name> to search again.`
+          text: `✅ Process stopped. Use .movie <name> to search again.`
         }, { quoted: message });
         return;
       }
 
-      
       if (repliedToId === movieListMessageKey.id) {
         const selectedNumber = parseInt(replyText);
-        const selectedFilm = films.find(film => film.number === selectedNumber);
+        const selectedFilm = films.find(f => f.number === selectedNumber);
 
         if (!selectedFilm) {
           await conn.sendMessage(from, {
-            text: `*❌ Invalid Selection*\n\nPlease choose a valid movie number from the list.`
+            text: `❌ Invalid number. Please try again.`
           }, { quoted: message });
           return;
         }
 
-        
-        if (!selectedFilm.link || !selectedFilm.link.startsWith('http')) {
-          await conn.sendMessage(from, {
-            text: `*❌ Invalid Link*\n\nThis movie link is not available. Please select another movie.`
-          }, { quoted: message });
-          return;
-        }
-
-        
         const downloadUrl = `https://apis.davidcyriltech.my.id/movies/download?url=${encodeURIComponent(selectedFilm.link)}`;
         let downloadData;
-        let downloadRetries = 3;
+        let retries = 3;
 
-        while (downloadRetries > 0) {
+        while (retries > 0) {
           try {
-            const downloadResponse = await axios.get(downloadUrl, { timeout: 10000 });
-            downloadData = downloadResponse.data;
-            console.log('API response:', JSON.stringify(downloadData, null, 2));
+            const response = await axios.get(downloadUrl, { timeout: 10000 });
+            downloadData = response.data;
             if (!downloadData.status || !downloadData.movie || !downloadData.movie.download_links) {
-              throw new Error("Invalid API response: Missing status or download links");
+              throw new Error("Invalid download response.");
             }
             break;
-          } catch (error) {
-            console.error(`Download API error: ${error.message}, Retries left: ${downloadRetries}`);
-            downloadRetries--;
-            if (downloadRetries === 0) {
+          } catch (err) {
+            retries--;
+            if (retries === 0) {
               await conn.sendMessage(from, {
-                text: `*❌ Download Error*\n\nFailed to fetch download links: ${error.message}\nPlease try another movie.`
+                text: `❌ Error: ${err.message}\nPlease try another movie.`
               }, { quoted: message });
               return;
             }
@@ -142,109 +122,84 @@ cmd({
           }
         }
 
-        const downloadLinks = [];
         const allLinks = downloadData.movie.download_links;
+        const downloadLinks = [];
 
-        const sdLink = allLinks.find(link => link.quality === "SD 480p" && link.direct_download);
-        if (sdLink) {
-          downloadLinks.push({
-            number: 1,
-            quality: "SD Quality",
-            size: sdLink.size,
-            url: sdLink.direct_download
-          });
-        }
+        const sd = allLinks.find(l => l.quality === "SD 480p" && l.direct_download);
+        if (sd) downloadLinks.push({ number: 1, quality: "SD", size: sd.size, url: sd.direct_download });
 
-        let hdLink = allLinks.find(link => link.quality === "HD 720p" && link.direct_download);
-        if (!hdLink) {
-          hdLink = allLinks.find(link => link.quality === "FHD 1080p" && link.direct_download);
-        }
-        if (hdLink) {
-          downloadLinks.push({
-            number: 2,
-            quality: "HD Quality",
-            size: hdLink.size,
-            url: hdLink.direct_download
-          });
-        }
+        let hd = allLinks.find(l => l.quality === "HD 720p" && l.direct_download);
+        if (!hd) hd = allLinks.find(l => l.quality === "FHD 1080p" && l.direct_download);
+        if (hd) downloadLinks.push({ number: 2, quality: "HD", size: hd.size, url: hd.direct_download });
 
         if (downloadLinks.length === 0) {
           await conn.sendMessage(from, {
-            text: `*❌ No Downloads Available*\n\nNo SD or HD quality links available for this movie.\nPlease try another movie.`
+            text: `❌ No valid download links found. Try another title.`
           }, { quoted: message });
           return;
         }
 
-        let downloadOptions = `*🎬 ${selectedFilm.title}*\n\n`;
-        downloadOptions += `*📥 Choose Quality:*\n\n`;
-        downloadLinks.forEach(link => {
-          downloadOptions += `${link.number}. *${link.quality}* (${link.size})\n`;
+        let qualityList = `*🎬 ${selectedFilm.title}*\n\n📥 Choose Quality:\n\n`;
+        downloadLinks.forEach(dl => {
+          qualityList += `${dl.number}. *${dl.quality}* (${dl.size})\n`;
         });
-        downloadOptions += `\n🔢 Select quality: Reply with the number\n`;
-        downloadOptions += `❌ Reply 'done' to stop`;
+        qualityList += `\n🔢 Reply with number\n❌ Reply 'done' to stop`;
 
-        const downloadMessage = await conn.sendMessage(from, {
-          image: { url: downloadData.movie.thumbnail || selectedFilm.image || "https://via.placeholder.com/400x600/333/fff?text=Movie" },
-          caption: downloadOptions
+        const qualityMsg = await conn.sendMessage(from, {
+          image: { url: downloadData.movie.thumbnail || selectedFilm.image },
+          caption: qualityList
         }, { quoted: message });
 
-       
-        downloadOptionsMap.set(downloadMessage.key.id, { film: selectedFilm, downloadLinks });
+        downloadOptionsMap.set(qualityMsg.key.id, { film: selectedFilm, downloadLinks });
       }
-      
+
       else if (downloadOptionsMap.has(repliedToId)) {
         const { film, downloadLinks } = downloadOptionsMap.get(repliedToId);
-        const selectedQualityNumber = parseInt(replyText);
-        const selectedLink = downloadLinks.find(link => link.number === selectedQualityNumber);
+        const selectedQuality = parseInt(replyText);
+        const selected = downloadLinks.find(dl => dl.number === selectedQuality);
 
-        if (!selectedLink) {
+        if (!selected) {
           await conn.sendMessage(from, {
-            text: `*❌ Invalid Selection*\n\nPlease choose a valid quality number from the list.`
+            text: `❌ Invalid quality selection.`
           }, { quoted: message });
           return;
         }
 
- 
-        const sizeStr = selectedLink.size.toLowerCase();
+        const size = selected.size.toLowerCase();
         let sizeInGB = 0;
-        if (sizeStr.includes("gb")) {
-          sizeInGB = parseFloat(sizeStr.replace("gb", "").trim());
-        } else if (sizeStr.includes("mb")) {
-          sizeInGB = parseFloat(sizeStr.replace("mb", "").trim()) / 1024;
-        }
+        if (size.includes("gb")) sizeInGB = parseFloat(size.replace("gb", ""));
+        else if (size.includes("mb")) sizeInGB = parseFloat(size.replace("mb", "")) / 1024;
 
         if (sizeInGB > 2) {
           await conn.sendMessage(from, {
-            text: `*⚠️ File Too Large*\n\nFile size: ${selectedLink.size}\nThis file is too large to send directly.\n\n*Direct Download Link:*\n${selectedLink.url}\n\nTry selecting a smaller quality option.`
+            text: `⚠️ File too large to send via bot.\n\n*Direct Link:*\n${selected.url}`
           }, { quoted: message });
           return;
         }
 
-  
         try {
           await conn.sendMessage(from, {
-            document: { url: selectedLink.url },
+            document: { url: selected.url },
             mimetype: "video/mp4",
-            fileName: `${film.title} - ${selectedLink.quality}.mp4`,
-            caption: `*🎬 ${film.title}*\n\n📱 Quality: ${selectedLink.quality}\n📊 Size: ${selectedLink.size}\n\n✅ Download completed successfully!`
+            fileName: `${film.title} - ${selected.quality}.mp4`,
+            caption: `🎬 *${film.title}*\n📊 Size: ${selected.size}\n✅ Download Complete`
           }, { quoted: message });
 
           await conn.sendMessage(from, { react: { text: "✅", key: message.key } });
-        } catch (downloadError) {
+        } catch (err) {
           await conn.sendMessage(from, {
-            text: `*❌ Download Error*\n\nError: ${downloadError.message}\n\n*Direct Download Link:*\n${selectedLink.url}\n\nPlease try again or use the direct link.`
+            text: `❌ Error sending file\nUse direct link:\n${selected.url}`
           }, { quoted: message });
         }
       }
     };
 
-    
     conn.ev.on("messages.upsert", selectionHandler);
 
   } catch (e) {
     console.error("Error:", e);
     await conn.sendMessage(from, {
-      text: `*❌ Error Occurred*\n\nError: ${e.message || "Something went wrong"}\n\nPlease try again later.`
+      text: `❌ Error: ${e.message || "Unknown error"}`
     }, { quoted: mek });
     await conn.sendMessage(from, { react: { text: "❌", key: mek.key } });
   }
