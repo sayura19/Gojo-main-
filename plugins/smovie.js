@@ -9,13 +9,13 @@ const searchCache = new NodeCache({ stdTTL: 60, checkperiod: 120 });
 cmd({
   pattern: "sub",
   react: "🛸",
-  desc: "Search and download Sinhala subtitled Movies/TV Series",
+  desc: "Search Sinhala Movies with subtitles",
   category: "media",
   filename: __filename,
-}, async (conn, mek, m, { from, q, pushname }) => {
+}, async (conn, mek, m, { from, q }) => {
   if (!q) {
     await conn.sendMessage(from, {
-      text: `*🎬 Sinhala Subtitle Movie/TV Search*\n\n📋 Usage: .sub <name>\n📝 Example: .sub Vikada Yaka\n\n💡 Reply 'done' to stop the process.`
+      text: `🎬 *CineSubz Sinhala Movie Downloader*\n\n📌 *Usage:* .sub <movie name>\n💡 Example: .sub Krrish`
     }, { quoted: mek });
     return;
   }
@@ -32,136 +32,131 @@ cmd({
           const response = await axios.get(searchUrl, { timeout: 10000 });
           searchData = response.data;
           break;
-        } catch (error) {
+        } catch (err) {
           retries--;
-          if (retries === 0) throw new Error("Failed to retrieve data. Try again later.");
+          if (retries === 0) {
+            throw new Error("❌ Failed to reach CineSubz API. Try again later.");
+          }
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
 
-      if (!searchData.status || !searchData.results || searchData.results.length === 0) {
-        throw new Error("No results found for the given name.");
+      if (!searchData || !searchData.status || !Array.isArray(searchData.results) || searchData.results.length === 0) {
+        await conn.sendMessage(from, {
+          text: `❌ No results found for: "${q}"\n🔁 Try a different movie or TV title.`
+        }, { quoted: mek });
+        return;
       }
 
       searchCache.set(cacheKey, searchData);
     }
 
-    const films = searchData.results.map((film, index) => ({
+    const results = searchData.results.slice(0, 10).map((film, index) => ({
       number: index + 1,
       title: film.title,
-      imdb: film.imdb,
       year: film.year,
-      link: film.link,
-      image: film.image
+      imdb: film.imdb,
+      image: film.image,
+      link: film.link
     }));
 
-    let filmList = `*🎬 SEARCH RESULTS*\n\n`;
-    films.forEach(film => {
-      filmList += `🎥 ${film.number}. *${film.title}*\n`;
-      filmList += `   ⭐ IMDB: ${film.imdb}\n`;
-      filmList += `   📅 Year: ${film.year}\n\n`;
-    });
-    filmList += `🔢 Reply with a number to choose\n❌ Reply 'done' to cancel`;
+    let textList = `*🎬 SEARCH RESULTS*\n\n`;
+    for (const movie of results) {
+      textList += `🎥 ${movie.number}. *${movie.title}* (${movie.year})\n⭐ IMDB: ${movie.imdb}\n\n`;
+    }
+    textList += `🔢 Reply with number to select\n❌ Reply 'done' to cancel`;
 
-    const movieListMessage = await conn.sendMessage(from, {
-      image: { url: films[0].image },
-      caption: filmList
+    const listMsg = await conn.sendMessage(from, {
+      image: { url: results[0].image },
+      caption: textList
     }, { quoted: mek });
 
-    const movieListMessageKey = movieListMessage.key;
-    const downloadOptionsMap = new Map();
+    const listMsgId = listMsg.key.id;
+    const selectionMap = new Map();
 
     const selectionHandler = async (update) => {
-      const message = update.messages[0];
-      if (!message.message || !message.message.extendedTextMessage) return;
+      const msg = update.messages?.[0];
+      if (!msg?.message?.extendedTextMessage) return;
 
-      const replyText = message.message.extendedTextMessage.text.trim();
-      const repliedToId = message.message.extendedTextMessage.contextInfo?.stanzaId;
+      const reply = msg.message.extendedTextMessage.text.trim();
+      const repliedId = msg.message.extendedTextMessage.contextInfo?.stanzaId;
 
-      if (replyText.toLowerCase() === "done") {
+      if (reply.toLowerCase() === "done") {
         conn.ev.off("messages.upsert", selectionHandler);
-        downloadOptionsMap.clear();
-        await conn.sendMessage(from, {
-          text: `✅ Process stopped. Use .sub <name> to search again.`
-        }, { quoted: message });
+        selectionMap.clear();
+        await conn.sendMessage(from, { text: `✅ Stopped. You can start again using *.sub <name>*` }, { quoted: msg });
         return;
       }
 
-      if (repliedToId === movieListMessageKey.id) {
-        const selectedNumber = parseInt(replyText);
-        const selectedFilm = films.find(f => f.number === selectedNumber);
-
-        if (!selectedFilm) {
-          await conn.sendMessage(from, {
-            text: `❌ Invalid number. Please try again.`
-          }, { quoted: message });
+      // First reply to list
+      if (repliedId === listMsgId) {
+        const selected = results.find(r => r.number === parseInt(reply));
+        if (!selected) {
+          await conn.sendMessage(from, { text: `❌ Invalid number.` }, { quoted: msg });
           return;
         }
 
-        const downloadUrl = `https://cinesubz-api-zazie.vercel.app/api/movie?url=${encodeURIComponent(selectedFilm.link)}`;
-        let downloadData;
+        const detailUrl = `https://cinesubz-api-zazie.vercel.app/api/movie?url=${encodeURIComponent(selected.link)}`;
+        let movieData;
         let retries = 3;
-
         while (retries > 0) {
           try {
-            const response = await axios.get(downloadUrl, { timeout: 10000 });
-            downloadData = response.data;
-            if (!downloadData.status || !downloadData.movie || !downloadData.movie.download_links) {
-              throw new Error("Invalid download response.");
-            }
+            const res = await axios.get(detailUrl, { timeout: 10000 });
+            movieData = res.data;
             break;
           } catch (err) {
             retries--;
             if (retries === 0) {
               await conn.sendMessage(from, {
-                text: `❌ Error: ${err.message}\nPlease try another movie.`
-              }, { quoted: message });
+                text: `❌ Failed to fetch movie details.\nTry again later.`
+              }, { quoted: msg });
               return;
             }
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
         }
 
-        const allLinks = downloadData.movie.download_links;
-        const downloadLinks = [];
-
-        const sd = allLinks.find(l => l.quality === "SD 480p" && l.direct_download);
-        if (sd) downloadLinks.push({ number: 1, quality: "SD", size: sd.size, url: sd.direct_download });
-
-        let hd = allLinks.find(l => l.quality === "HD 720p" && l.direct_download);
-        if (!hd) hd = allLinks.find(l => l.quality === "FHD 1080p" && l.direct_download);
-        if (hd) downloadLinks.push({ number: 2, quality: "HD", size: hd.size, url: hd.direct_download });
-
-        if (downloadLinks.length === 0) {
-          await conn.sendMessage(from, {
-            text: `❌ No valid download links found. Try another title.`
-          }, { quoted: message });
+        if (!movieData?.status || !movieData?.movie?.download_links) {
+          await conn.sendMessage(from, { text: `❌ No valid download links.` }, { quoted: msg });
           return;
         }
 
-        let qualityList = `*🎬 ${selectedFilm.title}*\n\n📥 Choose Quality:\n\n`;
-        downloadLinks.forEach(dl => {
-          qualityList += `${dl.number}. *${dl.quality}* (${dl.size})\n`;
-        });
-        qualityList += `\n🔢 Reply with number\n❌ Reply 'done' to stop`;
+        const links = movieData.movie.download_links;
+        const downloadOptions = [];
+
+        const sd = links.find(l => l.quality.includes("480p") && l.direct_download);
+        if (sd) downloadOptions.push({ number: 1, quality: "SD", size: sd.size, url: sd.direct_download });
+
+        let hd = links.find(l => l.quality.includes("720p") && l.direct_download);
+        if (!hd) hd = links.find(l => l.quality.includes("1080p") && l.direct_download);
+        if (hd) downloadOptions.push({ number: 2, quality: "HD", size: hd.size, url: hd.direct_download });
+
+        if (downloadOptions.length === 0) {
+          await conn.sendMessage(from, { text: `❌ No downloadable links found.` }, { quoted: msg });
+          return;
+        }
+
+        let caption = `🎬 *${selected.title}*\n\n📥 Choose Quality:\n`;
+        for (const opt of downloadOptions) {
+          caption += `${opt.number}. *${opt.quality}* (${opt.size})\n`;
+        }
+        caption += `\n🔢 Reply with number\n❌ Reply 'done' to stop`;
 
         const qualityMsg = await conn.sendMessage(from, {
-          image: { url: downloadData.movie.thumbnail || selectedFilm.image },
-          caption: qualityList
-        }, { quoted: message });
+          image: { url: movieData.movie.thumbnail || selected.image },
+          caption
+        }, { quoted: msg });
 
-        downloadOptionsMap.set(qualityMsg.key.id, { film: selectedFilm, downloadLinks });
+        selectionMap.set(qualityMsg.key.id, { film: selected, options: downloadOptions });
       }
 
-      else if (downloadOptionsMap.has(repliedToId)) {
-        const { film, downloadLinks } = downloadOptionsMap.get(repliedToId);
-        const selectedQuality = parseInt(replyText);
-        const selected = downloadLinks.find(dl => dl.number === selectedQuality);
+      // Second reply to quality selection
+      else if (selectionMap.has(repliedId)) {
+        const { film, options } = selectionMap.get(repliedId);
+        const selected = options.find(o => o.number === parseInt(reply));
 
         if (!selected) {
-          await conn.sendMessage(from, {
-            text: `❌ Invalid quality selection.`
-          }, { quoted: message });
+          await conn.sendMessage(from, { text: `❌ Invalid selection.` }, { quoted: msg });
           return;
         }
 
@@ -172,8 +167,8 @@ cmd({
 
         if (sizeInGB > 2) {
           await conn.sendMessage(from, {
-            text: `⚠️ File too large to send via bot.\n\n*Direct Link:*\n${selected.url}`
-          }, { quoted: message });
+            text: `⚠️ File too large to send.\n\n🔗 *Direct Link:*\n${selected.url}`
+          }, { quoted: msg });
           return;
         }
 
@@ -182,14 +177,13 @@ cmd({
             document: { url: selected.url },
             mimetype: "video/mp4",
             fileName: `${film.title} - ${selected.quality}.mp4`,
-            caption: `🎬 *${film.title}*\n📊 Size: ${selected.size}\n✅ Download Complete`
-          }, { quoted: message });
-
-          await conn.sendMessage(from, { react: { text: "✅", key: message.key } });
+            caption: `✅ Download complete!\n🎬 ${film.title}\n📊 Size: ${selected.size}`
+          }, { quoted: msg });
+          await conn.sendMessage(from, { react: { text: "✅", key: msg.key } });
         } catch (err) {
           await conn.sendMessage(from, {
-            text: `❌ Error sending file\nUse direct link:\n${selected.url}`
-          }, { quoted: message });
+            text: `❌ Upload failed. Use direct link:\n${selected.url}`
+          }, { quoted: msg });
         }
       }
     };
@@ -197,10 +191,8 @@ cmd({
     conn.ev.on("messages.upsert", selectionHandler);
 
   } catch (e) {
-    console.error("Error:", e);
-    await conn.sendMessage(from, {
-      text: `❌ Error: ${e.message || "Unknown error"}`
-    }, { quoted: mek });
+    console.error("Sub Command Error:", e);
+    await conn.sendMessage(from, { text: `❌ Error: ${e.message || "Unknown error"}` }, { quoted: mek });
     await conn.sendMessage(from, { react: { text: "❌", key: mek.key } });
   }
 });
