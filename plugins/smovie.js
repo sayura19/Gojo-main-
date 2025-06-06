@@ -1,23 +1,21 @@
-const l = console.log;
-const config = require('../settings');
-const { cmd } = require('../lib/command');
-const axios = require('axios');
-const NodeCache = require('node-cache');
+const axios = require("axios");
+const NodeCache = require("node-cache");
+const { cmd } = require("../lib/command");
+
 const searchCache = new NodeCache({ stdTTL: 60 });
 
 cmd({
   pattern: "sub",
   alias: ["subfilm"],
-  react: "🆚",
-  desc: "Search and download movies with Sinhala subtitles from CineSubz",
+  react: "🛸",
+  desc: "Download Sinhala Subtitle Movies from CineSubz",
   category: "movie",
   filename: __filename,
 }, async (conn, mek, m, { from, q }) => {
   if (!q) {
-    await conn.sendMessage(from, {
+    return await conn.sendMessage(from, {
       text: `🎬 *CineSubz Sinhala Movie Search*\n\n📌 Usage: .sub <movie name>\n📥 Example: .sub Deadpool`,
     }, { quoted: mek });
-    return;
   }
 
   try {
@@ -25,9 +23,8 @@ cmd({
     let searchData = searchCache.get(cacheKey);
 
     if (!searchData) {
-      const url = `https://cinesubz-api-zazie.vercel.app/api/search?q=${encodeURIComponent(q)}`;
-      const res = await axios.get(url, { timeout: 10000 });
-      if (!res.data.status || !res.data.result?.data?.length) throw new Error("No results found.");
+      const res = await axios.get(`https://cinesubz-api-zazie.vercel.app/api/search?q=${encodeURIComponent(q)}`, { timeout: 10000 });
+      if (!res.data.status || !res.data.result?.data?.length) throw new Error("📛 Results not found.");
       searchData = res.data.result.data;
       searchCache.set(cacheKey, searchData);
     }
@@ -50,32 +47,30 @@ cmd({
     const selectionMap = new Map();
 
     const handleReply = async (update) => {
-      const msgObj = update.messages?.[0];
-      if (!msgObj?.message?.extendedTextMessage) return;
+      const msgObj = update.messages[0];
+      if (!msgObj.message?.extendedTextMessage) return;
 
       const replyText = msgObj.message.extendedTextMessage.text.trim();
       const repliedId = msgObj.message.extendedTextMessage.contextInfo?.stanzaId;
 
-      if (replyText.toLowerCase() === 'done') {
+      if (replyText.toLowerCase() === "done") {
         conn.ev.off("messages.upsert", handleReply);
-        await conn.sendMessage(from, { text: `✅ Cancelled.` }, { quoted: msgObj });
+        await conn.sendMessage(from, { text: `❌ Cancelled.` }, { quoted: msgObj });
         return;
       }
 
-      // First reply: movie selection
+      // Movie Selection
       if (repliedId === listMsgId) {
         const index = parseInt(replyText);
         const selected = results.find(r => r.number === index);
         if (!selected) {
-          await conn.sendMessage(from, { text: `❌ Invalid number.` }, { quoted: msgObj });
-          return;
+          return await conn.sendMessage(from, { text: `❌ Invalid number.` }, { quoted: msgObj });
         }
 
         const res = await axios.get(`https://cinesubz-api-zazie.vercel.app/api/movie?url=${encodeURIComponent(selected.link)}`);
         const data = res.data?.result?.data;
         if (!data?.dl_links?.length) {
-          await conn.sendMessage(from, { text: `❌ No download links found.` }, { quoted: msgObj });
-          return;
+          return await conn.sendMessage(from, { text: `❌ No download links.` }, { quoted: msgObj });
         }
 
         const links = data.dl_links.map((l, i) => ({
@@ -97,20 +92,27 @@ cmd({
         selectionMap.set(qualityMsg.key.id, { movie: data.title, image: data.image, links });
       }
 
-      // Second reply: quality selection
+      // Quality Selection
       else if (selectionMap.has(repliedId)) {
         const { movie, image, links } = selectionMap.get(repliedId);
         const index = parseInt(replyText);
         const selected = links.find(l => l.number === index);
-
         if (!selected) {
-          await conn.sendMessage(from, { text: `❌ Invalid selection.` }, { quoted: msgObj });
-          return;
+          return await conn.sendMessage(from, { text: `❌ Invalid quality number.` }, { quoted: msgObj });
         }
 
         try {
-          // HEAD request to check if file is available
-          await axios.head(selected.url, { timeout: 7000 });
+          // Optional file size check
+          const head = await axios.head(selected.url);
+          const size = parseInt(head.headers['content-length'] || 0) / (1024 * 1024);
+
+          if (size > 150) {
+            return await conn.sendMessage(from, {
+              text: `⚠️ File too large to upload on WhatsApp (${Math.round(size)} MB).\n\n📥 Direct download:\n${selected.url}`,
+              footer: "CineSubz Sinhala Movie",
+              buttons: [{ buttonId: selected.url, buttonText: { displayText: "📥 Download Now" }, type: 1 }],
+            }, { quoted: msgObj });
+          }
 
           await conn.sendMessage(from, {
             document: { url: selected.url },
@@ -120,7 +122,7 @@ cmd({
             contextInfo: {
               externalAdReply: {
                 title: movie,
-                body: '🎬 Sinhala Subtitle Movie',
+                body: "🎬 Sinhala Subtitle Movie",
                 mediaType: 1,
                 thumbnailUrl: image,
                 sourceUrl: selected.url,
@@ -135,7 +137,6 @@ cmd({
           await conn.sendMessage(from, {
             text: `⚠️ Upload failed. Here’s the direct link:\n${selected.url}`
           }, { quoted: msgObj });
-          await conn.sendMessage(from, { react: { text: "⚠️", key: msgObj.key } });
         }
       }
     };
@@ -143,9 +144,7 @@ cmd({
     conn.ev.on("messages.upsert", handleReply);
 
   } catch (err) {
-    await conn.sendMessage(from, {
-      text: `❌ Error: ${err.message}`
-    }, { quoted: mek });
+    await conn.sendMessage(from, { text: `❌ Error: ${err.message}` }, { quoted: mek });
     await conn.sendMessage(from, { react: { text: "❌", key: mek.key } });
   }
 });
