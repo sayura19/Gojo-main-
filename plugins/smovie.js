@@ -1,6 +1,6 @@
 const l = console.log;
 const config = require('../settings');
-const { cmd, commands } = require('../lib/command');
+const { cmd } = require('../lib/command');
 const axios = require('axios');
 const NodeCache = require('node-cache');
 
@@ -9,23 +9,23 @@ const searchCache = new NodeCache({ stdTTL: 60, checkperiod: 120 });
 cmd({
   pattern: "sub",
   react: "🛸",
-  desc: "Search and download Movies/TV Series",
+  desc: "Search and download Sinhala subtitled Movies/TV Series",
   category: "media",
   filename: __filename,
 }, async (conn, mek, m, { from, q, pushname }) => {
   if (!q) {
     await conn.sendMessage(from, {
-      text: `*🎬 Movie / TV Series Search*\n\n📋 Usage: .movie <name>\n📝 Example: .movie Breaking Bad\n\n💡 Reply 'done' to stop the process`
+      text: `*🎬 Sinhala Subtitle Movie/TV Search*\n\n📋 Usage: .sub <name>\n📝 Example: .sub Vikada Yaka\n\n💡 Reply 'done' to stop the process.`
     }, { quoted: mek });
     return;
   }
 
   try {
-    const cacheKey = `film_search_${q.toLowerCase()}`;
+    const cacheKey = `sub_search_${q.toLowerCase()}`;
     let searchData = searchCache.get(cacheKey);
 
     if (!searchData) {
-      const searchUrl = https://cinesubz-api-zazie.vercel.app/api/search?q=${encodeURIComponent(q)}`;
+      const searchUrl = `https://cinesubz-api-zazie.vercel.app/api/search?q=${encodeURIComponent(q)}`;
       let retries = 3;
       while (retries > 0) {
         try {
@@ -61,7 +61,7 @@ cmd({
       filmList += `   ⭐ IMDB: ${film.imdb}\n`;
       filmList += `   📅 Year: ${film.year}\n\n`;
     });
-    filmList += `🔢 Select a number to choose\n❌ Reply 'done' to cancel`;
+    filmList += `🔢 Reply with a number to choose\n❌ Reply 'done' to cancel`;
 
     const movieListMessage = await conn.sendMessage(from, {
       image: { url: films[0].image },
@@ -76,13 +76,13 @@ cmd({
       if (!message.message || !message.message.extendedTextMessage) return;
 
       const replyText = message.message.extendedTextMessage.text.trim();
-      const repliedToId = message.message.extendedTextMessage.contextInfo.stanzaId;
+      const repliedToId = message.message.extendedTextMessage.contextInfo?.stanzaId;
 
       if (replyText.toLowerCase() === "done") {
         conn.ev.off("messages.upsert", selectionHandler);
         downloadOptionsMap.clear();
         await conn.sendMessage(from, {
-          text: `✅ Process stopped. Use .movie <name> to search again.`
+          text: `✅ Process stopped. Use .sub <name> to search again.`
         }, { quoted: message });
         return;
       }
