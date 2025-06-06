@@ -8,7 +8,7 @@ const searchCache = new NodeCache({ stdTTL: 60 });
 cmd({
   pattern: "sub",
   alias: ["subfilm"],
-  react: "🎬",
+  react: "🆚",
   desc: "Search and download movies with Sinhala subtitles from CineSubz",
   category: "movie",
   filename: __filename,
@@ -50,8 +50,8 @@ cmd({
     const selectionMap = new Map();
 
     const handleReply = async (update) => {
-      const msgObj = update.messages[0];
-      if (!msgObj.message?.extendedTextMessage) return;
+      const msgObj = update.messages?.[0];
+      if (!msgObj?.message?.extendedTextMessage) return;
 
       const replyText = msgObj.message.extendedTextMessage.text.trim();
       const repliedId = msgObj.message.extendedTextMessage.contextInfo?.stanzaId;
@@ -62,7 +62,7 @@ cmd({
         return;
       }
 
-      // First reply: selecting movie
+      // First reply: movie selection
       if (repliedId === listMsgId) {
         const index = parseInt(replyText);
         const selected = results.find(r => r.number === index);
@@ -97,7 +97,7 @@ cmd({
         selectionMap.set(qualityMsg.key.id, { movie: data.title, image: data.image, links });
       }
 
-      // Second reply: selecting quality
+      // Second reply: quality selection
       else if (selectionMap.has(repliedId)) {
         const { movie, image, links } = selectionMap.get(repliedId);
         const index = parseInt(replyText);
@@ -109,6 +109,9 @@ cmd({
         }
 
         try {
+          // HEAD request to check if file is available
+          await axios.head(selected.url, { timeout: 7000 });
+
           await conn.sendMessage(from, {
             document: { url: selected.url },
             mimetype: "video/mp4",
@@ -127,10 +130,12 @@ cmd({
           }, { quoted: msgObj });
 
           await conn.sendMessage(from, { react: { text: "✅", key: msgObj.key } });
+
         } catch (e) {
           await conn.sendMessage(from, {
             text: `⚠️ Upload failed. Here’s the direct link:\n${selected.url}`
           }, { quoted: msgObj });
+          await conn.sendMessage(from, { react: { text: "⚠️", key: msgObj.key } });
         }
       }
     };
