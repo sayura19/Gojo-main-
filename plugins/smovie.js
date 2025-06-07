@@ -1,6 +1,9 @@
 const { cmd } = require('../lib/command');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
+// Timezone +0530 date time
 function getCurrentDateTime() {
     const now = new Date();
     const offset = 5.5 * 60 * 60 * 1000;
@@ -12,90 +15,189 @@ function getCurrentDateTime() {
     return `${day}, ${date}, ${time} +0530`;
 }
 
+// CineSubz API search
 async function searchMovies(query) {
+    const api = {
+        url: `https://cinesubz-api-zazie.vercel.app/api/search?q=${encodeURIComponent(query)}`,
+        name: "CineSubz",
+        parseResults: (data) => {
+            if (!data || !data.status || !data.result || !data.result.data || !Array.isArray(data.result.data)) {
+                throw new Error("Invalid response structure");
+            }
+            return data.result.data.map(item => ({
+                title: item.title || "Unknown Title",
+                link: item.link || "",
+                year: item.year || "N/A",
+            }));
+        },
+    };
+
+    let results = [];
+    let errorMessages = [];
+
     try {
-        const res = await axios.get(`https://cinesubz-api-zazie.vercel.app/api/search?q=${encodeURIComponent(query)}`);
-        return res.data.result.data || [];
+        const response = await axios.get(api.url, { timeout: 10000 });
+        results = api.parseResults(response.data);
+        if (results.length === 0) {
+            errorMessages.push(`${api.name}: No results found`);
+        }
     } catch (err) {
-        return [];
+        errorMessages.push(`${api.name}: ${err.message}`);
+    }
+
+    return { results: results.slice(0, 10), errors: errorMessages };
+}
+
+// Fetch movie details incl. download links
+async function getMovieDetails(movieUrl) {
+    const apiUrl = `https://cinesubz-api-zazie.vercel.app/api/movie?url=${encodeURIComponent(movieUrl)}`;
+    try {
+        const response = await axios.get(apiUrl, { timeout: 10000 });
+        const movieData = response.data.result.data;
+        if (!movieData) {
+            throw new Error("No movie data returned");
+        }
+        if (!movieData.dl_links || movieData.dl_links.length === 0) {
+            throw new Error("No download links found");
+        }
+        return {
+            title: movieData.title || "Unknown Title",
+            imdb: movieData.imdbRate || "N/A",
+            date: movieData.date || "N/A",
+            country: movieData.country || "N/A",
+            runtime: movieData.duration || "N/A",
+            image: movieData.image || "",
+            dl_links: movieData.dl_links.map(link => ({
+                quality: link.quality || "Unknown Quality",
+                size: link.size || "Unknown Size",
+                link: link.link || "",
+            })),
+        };
+    } catch (err) {
+        throw new Error(`Failed to fetch movie details: ${err.message}`);
     }
 }
 
-async function getMovieDetails(movieUrl) {
-    const apiUrl = `https://cinesubz-api-zazie.vercel.app/api/movie?url=${encodeURIComponent(movieUrl)}`;
-    const response = await axios.get(apiUrl);
-    const movieData = response.data.result.data;
-    if (!movieData || !movieData.dl_links?.length) throw new Error("No links");
+// Download file from URL temporarily
+async function downloadFile(url, filename) {
+    const writer = fs.createWriteStream(filename);
+    const response = await axios({
+        url,
+        method: 'GET',
+        responseType: 'stream',
+        timeout: 60000, // 60 seconds timeout
+    });
 
-    return {
-        title: movieData.title,
-        image: movieData.image,
-        imdb: movieData.imdbRate,
-        date: movieData.date,
-        country: movieData.country,
-        runtime: movieData.duration,
-        dl_links: movieData.dl_links,
-    };
+    response.data.pipe(writer);
+
+    return new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+    });
 }
-
-let activeSessions = new Map(); // in-memory store
 
 cmd({
     pattern: "sub",
-    desc: "Search and download movies",
+    alias: ["subfilm"],
+    react: "🎬",
+    desc: "Search and download movies from CineSubz",
     category: "movie",
     filename: __filename,
-},
-async (conn, mek, m, { from, q, reply }) => {
-    if (!q) return reply("🎬 Please type a movie name!");
+}, async (conn, mek, m, { from, q, reply }) => {
+    try {
+        if (!q) {
+            return await reply("*Please provide a movie name to search! (e.g., Deadpool)*");
+        }
 
-    const movies = await searchMovies(q);
-    if (movies.length === 0) return reply("❌ No results found.");
+        // Step 1: Search movies
+        const { results, errors } = await searchMovies(q);
+        if (results.length === 0) {
+            return await reply(`*No movies found for:* "${q}"\n${errors.join('\n')}\n*Please try a different search term.*`);
+        }
 
-    let txt = `🎬 *Search Results for:* "${q}"\n\n`;
-    movies.slice(0, 5).forEach((movie, i) => {
-        txt += `*${i + 1}.* ${movie.title} (${movie.year})\n🔗 ${movie.link}\n\n`;
-    });
-    txt += "💬 *Reply with a number (1-5) to select a movie.*";
-
-    await conn.sendMessage(from, { text: txt }, { quoted: mek });
-    activeSessions.set(from, { step: "select_movie", movies, user: mek.key.participant || from });
-});
-
-// Reply handler (should be registered globally in your bot)
-async function handleReply(conn, mek) {
-    const from = mek.key.remoteJid;
-    const session = activeSessions.get(from);
-    if (!session || mek.key.participant !== session.user) return;
-
-    const body = mek.message?.conversation || "";
-    const num = parseInt(body.trim());
-
-    if (session.step === "select_movie") {
-        const movie = session.movies[num - 1];
-        if (!movie) return conn.sendMessage(from, { text: "Invalid choice." });
-
-        const details = await getMovieDetails(movie.link);
-        let cap = `🎬 *${details.title}*\n⭐ IMDB: ${details.imdb}\n📅 ${details.date}\n🌍 ${details.country}\n🕒 ${details.runtime}\n\n`;
-        details.dl_links.forEach((l, i) => {
-            cap += `*${i + 1}.* ${l.quality} - ${l.size}\n🔗 ${l.link}\n\n`;
+        // Step 2: Send search results
+        let resultsMessage = `✨ *SOLO-LEVELING MOVIE DOWNLOADER* ✨\n\n🎥 *Search Results for* "${q}" (Date: ${getCurrentDateTime()}):\n\n`;
+        results.forEach((result, index) => {
+            resultsMessage += `*${index + 1}.* ${result.title} (${result.year}) [CineSubz]\n\n`;
         });
-        cap += "💬 *Reply with number to get download link.*";
+        resultsMessage += `\n📩 *Please reply with the number of the movie you want to download.*`;
 
-        await conn.sendMessage(from, { text: cap }, { quoted: mek });
-        activeSessions.set(from, { step: "select_quality", links: details.dl_links, user: mek.key.participant || from });
-    } else if (session.step === "select_quality") {
-        const link = session.links[num - 1];
-        if (!link) return conn.sendMessage(from, { text: "Invalid selection." });
+        const sentMsg = await conn.sendMessage(from, { text: resultsMessage }, { quoted: mek });
+        const messageID = sentMsg.key.id;
 
-        await conn.sendMessage(from, {
-            document: { url: link.link },
-            fileName: `${link.quality}.mp4`,
-            mimetype: "video/mp4",
-            caption: `⬇️ Downloading: ${link.quality} - ${link.size}`,
-        }, { quoted: mek });
+        // Step 3: Wait for movie selection reply
+        conn.addReplyTracker(messageID, async (replyMsg) => {
+            if (!replyMsg.message) return;
+            const from = replyMsg.key.remoteJid;
+            const selectedNumber = parseInt(replyMsg.message.conversation || replyMsg.message.extendedTextMessage?.text);
+            if (!isNaN(selectedNumber) && selectedNumber > 0 && selectedNumber <= results.length) {
+                const selectedMovie = results[selectedNumber - 1];
 
-        activeSessions.delete(from);
+                // Step 4: Fetch movie details
+                let movieData;
+                try {
+                    movieData = await getMovieDetails(selectedMovie.link);
+                } catch (err) {
+                    return await reply(`*Error fetching movie details:* ${err.message}\n*Try another movie or check the URL.*`);
+                }
+
+                // Step 5: Send download quality options
+                let downloadMessage = `🎥 *${movieData.title}*\n\n*Available Download Qualities:*\n`;
+                movieData.dl_links.forEach((link, index) => {
+                    downloadMessage += `*${index + 1}.* ${link.quality} - ${link.size}\n\n`;
+                });
+                downloadMessage += `\n📩 *Reply with the number of the quality you want to download.*`;
+
+                const sentDownloadMsg = await conn.sendMessage(from, { text: downloadMessage }, { quoted: replyMsg });
+                const downloadMessageID = sentDownloadMsg.key.id;
+
+                // Step 6: Wait for quality selection reply
+                conn.addReplyTracker(downloadMessageID, async (qualityReplyMsg) => {
+                    if (!qualityReplyMsg.message) return;
+                    const from = qualityReplyMsg.key.remoteJid;
+                    const selectedQuality = parseInt(qualityReplyMsg.message.conversation || qualityReplyMsg.message.extendedTextMessage?.text);
+
+                    if (!isNaN(selectedQuality) && selectedQuality > 0 && selectedQuality <= movieData.dl_links.length) {
+                        const selectedLink = movieData.dl_links[selectedQuality - 1];
+
+                        // Step 7: Download the file
+                        const tempFileName = path.join(__dirname, `${movieData.title}-${selectedLink.quality}.mp4`.replace(/[^a-z0-9\-_\.]/gi, '_'));
+                        await reply("Downloading the movie, please wait... (This might take some time depending on the file size)");
+
+                        try {
+                            await downloadFile(selectedLink.link, tempFileName);
+                        } catch (error) {
+                            await reply(`Failed to download the movie file: ${error.message}`);
+                            return;
+                        }
+
+                        // Step 8: Send the downloaded file as document
+                        try {
+                            await conn.sendMessage(from, {
+                                document: fs.readFileSync(tempFileName),
+                                mimetype: "video/mp4",
+                                fileName: `${movieData.title} - ${selectedLink.quality}.mp4`,
+                                caption: `🎬 *SOLO-LEVELING CINEMA* 🎥\n\nTitle: ${movieData.title}\nIMDB: ${movieData.imdb}\nDate: ${movieData.date}\nCountry: ${movieData.country}\nDuration: ${movieData.runtime}`
+                            }, { quoted: qualityReplyMsg });
+                        } catch (error) {
+                            await reply(`Failed to send the movie file: ${error.message}`);
+                        } finally {
+                            // Delete temp file
+                            fs.unlinkSync(tempFileName);
+                        }
+
+                    } else {
+                        await reply("Invalid selection. Please reply with a valid number.");
+                    }
+                });
+
+            } else {
+                await reply("Invalid selection. Please reply with a valid number.");
+            }
+        });
+
+    } catch (e) {
+        console.error("Error during movie download:", e);
+        reply(`*An error occurred while processing your request:* ${e.message}\n*Please try again later or use a different search term.*`);
     }
-}
-module.exports.handleReply = handleReply;
+});
