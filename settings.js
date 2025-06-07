@@ -17,6 +17,6 @@ MODE: process.env.MODE || "public",
 AUTO_VOICE: process.env.AUTO_VOICE || "true",
 AUTO_STICKER: process.env.AUTO_STICKER || "true",
 AUTO_REPLY: process.env.AUTO_REPLY || "true",
-WEATHER_API_KEY: process.env.WEATHER_API_KEY || "482e01ea59b22b270254d3fde0e02798",
+WEATHER_API_KEY: process.env.WEATHER_API_KEY || "9ad6e2bc255f629e9ff07569f0ad0af3",
 
 };
