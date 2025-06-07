@@ -1,59 +1,60 @@
-import { xvideosSearch, xvideosdl } from '../lib/ascraper.js';
+const l = console.log
+const config = require('../settings')
+const { cmd, commands } = require('../lib/command')
+import { xvideosSearch, xvideosdl } from '../lib/ascraper.js'
 
-let handler = async (m, { conn, args, text, usedPrefix, command }) => {
-  let chat = global.db.data.chats[m.chat];
-  if (!chat.nsfw) throw `🚫 This group does not support NSFW content.\n\nTo turn it on, use: *${usedPrefix}enable* nsfw`;
-  let user = global.db.data.users[m.sender].age;
-  if (user < 18) throw `❎ You must be 18 years or older to use this feature.`;
-  if (!text) throw `✳️ What do you want to search?\n📌 Usage: *${usedPrefix + command} <search>*\n\nExample: Hot desi bhabi or you can use a link as well\nExample: .xnxx link *`;
+const cmd = require('../lib/command').cmd
 
-  m.react('⌛');
-    if (!text) throw 'Please provide a search query or a valid Xvideos URL.';
-  
-    // Check if the input is a valid Xvideos URL
-    const isURL = /^(https?:\/\/)?(www\.)?xvideos\.com\/.+$/i.test(text);
-  
+cmd(
+  {
+    pattern: "xvid",
+    alias: ["xvideos"],
+    react: "🔞",
+    desc: "Search and download Xvideos videos",
+    category: "nsfw",
+    filename: __filename,
+    group: true,
+    premium: false,
+    register: true,
+  },
+  async (robin, mek, m, { from, quoted, body, isCmd, command, args, q, isGroup, sender, reply }) => {
     try {
+      if (!q) return reply(`✳️ What do you want to search?\n\nUsage: *${command} <search or URL>*\nExample: Hot desi bhabi or Xvideos URL`);
+
+      // Check NSFW and age
+      let chat = global.db.data.chats[m.chat]
+      if (!chat.nsfw) return reply(`🚫 This group does not support NSFW content.\nTo turn it on, use: *${command} enable nsfw*`);
+      let userAge = global.db.data.users[m.sender].age || 0
+      if (userAge < 18) return reply(`❎ You must be 18 years or older to use this feature.`);
+
+      m.react('⌛')
+
+      const isURL = /^(https?:\/\/)?(www\.)?xvideos\.com\/.+$/i.test(q);
+
       if (isURL) {
-        // If it's a valid URL, directly download the video
-        const result = await xvideosdl(text);
-        const { title, url } = result.result;
-  
-        // Send the video file
-        const response = await fetch(url);
-        const buffer = await response.arrayBuffer();
-  
-        conn.sendFile(
-          m.chat,
-          Buffer.from(buffer),
-          `${title}.mp4`,
-          `Here is your Xvideos video: ${title}`
-        );
-  
+        const videoLinks = await xvideosdl(q)
+        const videoUrl = videoLinks.high || videoLinks.low || videoLinks.hls
+
+        if (!videoUrl) return reply("❌ Video URL not found.")
+
+        // send the video directly
+        await robin.sendMessage(from, {
+          video: { url: videoUrl },
+          caption: "🔞 Here is your Xvideos video."
+        }, { quoted: mek })
+
       } else {
-        // If it's not a valid URL, perform a search and display the search results
-        const results = await xvideosSearch(text);
-        if (results.length === 0) {
-          m.reply('No search results found for the given query.');
-        } else {
-          const searchResults = results.map((result, index) => {
-            return `${index + 1}. *${result.title}*\nDuration: ${result.duration}\nQuality: ${result.quality}\nURL: ${result.url}`;
-          }).join('\n\n');
-  
-          m.reply(`*Search Results for "${text}":*\n\n${searchResults}`);
-        }
+        const results = await xvideosSearch(q)
+        if (!results.length) return reply("No search results found for the given query.")
+
+        const searchResults = results.map((res, i) => `${i+1}. *${res.title}*\nDuration: ${res.duration}\nURL: ${res.videoUrl}`).join('\n\n')
+
+        reply(`*Search Results for "${q}":*\n\n${searchResults}`)
       }
-    } catch (error) {
-      console.error(error);
-      throw 'Failed to fetch Xvideos video details.';
+
+    } catch (e) {
+      console.error(e)
+      reply(`❌ Error: ${e.message || e}`)
     }
-  };
-
-handler.command = ['xvid'];
-handler.group = true;
-handler.premium = false;
-handler.register = true;
-
-handler.premium = false;
-
-export default handler;
+  }
+)
