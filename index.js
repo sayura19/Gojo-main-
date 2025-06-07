@@ -916,43 +916,23 @@ events.commands.map(async (command) => {
   }
 });
 
-// In-memory reply tracker
-const replyTrackers = new Map();
+conn.ev.on("messages.upsert", async ({ messages }) => {
+  for (const mek of messages) {
+    if (!mek.message) continue;
 
-/**
- * Add a reply tracker for a specific message ID
- * @param {string} messageId - Message ID to track
- * @param {function} callback - Callback to call when a reply to this message ID is received
- */
-conn.addReplyTracker = function (messageId, callback) {
-    replyTrackers.set(messageId, callback);
-};
+    const replyTo = mek.message?.extendedTextMessage?.contextInfo?.stanzaId
+                 || mek.message?.contextInfo?.stanzaId;
 
-// Listener to intercept incoming messages and check if they are replies
-conn.ev.on('messages.upsert', async (msg) => {
-    try {
-        const message = msg.messages?.[0];
-        if (!message || !message.message || message.key.fromMe) return;
-
-        const replyToId = message.message?.extendedTextMessage?.contextInfo?.stanzaId
-                       || message.message?.contextInfo?.stanzaId;
-
-        if (replyToId && replyTrackers.has(replyToId)) {
-            const replyText = message.message.conversation
-                           || message.message.extendedTextMessage?.text
-                           || "";
-
-            const handler = replyTrackers.get(replyToId);
-            replyTrackers.delete(replyToId); // remove to avoid duplicate
-            if (handler) {
-                await handler(message, replyText);
-            }
-        }
-    } catch (e) {
-        console.error("💥 Error in reply tracker:", e.message);
+    if (replyTo && global.replyTracker[replyTo]) {
+      try {
+        await global.replyTracker[replyTo](mek);
+      } catch (e) {
+        console.error("Reply handler error:", e);
+      }
+      delete global.replyTracker[replyTo]; // Clean up after handling
     }
+  }
 });
-
 
 
       conn.downloadAndSaveMediaMessage = async(message, filename, attachExtension = true) => {
