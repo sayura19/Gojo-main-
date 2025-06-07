@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { cmd, tlang } = require('../lib');
+const { cmd, tlang } = require('../lib/command');
 const { WEATHER_API_KEY } = require('../settings'); // <-- API key එක import කරන්නෙ මෙතැනින්
 
 cmd({
