@@ -3,7 +3,7 @@ const config = require('../settings')
 const { cmd, commands } = require('../lib/command')
 import { xvideosSearch, xvideosdl } from '../lib/ascraper.js'
 
-const cmd = require('../lib/command').cmd
+
 
 cmd(
   {
