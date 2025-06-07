@@ -1,6 +1,8 @@
+// plugins/xvideo.js
 const l = console.log
-const config = require('../settings')
-const { cmd, commands } = require('../lib/command')
+
+import config from '../settings.js'
+import { cmd, commands } from '../lib/command.js'
 import { xvideosSearch, xvideosdl } from '../lib/ascraper.js'
 
 cmd(
@@ -10,7 +12,7 @@ cmd(
     react: "🔞",
     desc: "Search and download Xvideos videos",
     category: "nsfw",
-    filename: __filename,
+    filename: import.meta.url, // ✅ ESM equivalent to __filename
     group: true,
     premium: false,
     register: true,
@@ -21,22 +23,21 @@ cmd(
         return reply(`✳️ What do you want to search?\n\nUsage: *${command} <search or URL>*\nExample: Hot desi bhabi or Xvideos URL`);
       }
 
-      // 💡 Ensure global DB structure is safe
-      if (!global.db) global.db = {}
-      if (!global.db.data) global.db.data = {}
+      // 💡 Ensure global DB structure exists
+      if (!global.db) global.db = { data: { chats: {}, users: {} } }
+      if (!global.db.data) global.db.data = { chats: {}, users: {} }
       if (!global.db.data.chats) global.db.data.chats = {}
       if (!global.db.data.users) global.db.data.users = {}
 
-      // 🧠 Fallback if chat/user data is missing
       const chat = global.db.data.chats[m.chat] || {}
       const user = global.db.data.users[m.sender] || {}
 
-      // ❌ NSFW check
+      // ❌ NSFW group restriction
       if (!chat.nsfw) {
         return reply(`🚫 This group does not support NSFW content.\nTo turn it on, use: *${command} enable nsfw*`);
       }
 
-      // ❌ Age restriction check
+      // ❌ Age restriction
       const userAge = user.age || 0
       if (userAge < 18) {
         return reply(`❎ You must be 18 years or older to use this feature.`);
@@ -48,7 +49,7 @@ cmd(
 
       if (isURL) {
         const videoLinks = await xvideosdl(q)
-        const videoUrl = videoLinks.high || videoLinks.low || videoLinks.hls
+        const videoUrl = videoLinks?.high || videoLinks?.low || videoLinks?.hls
 
         if (!videoUrl) return reply("❌ Video URL not found.")
 
