@@ -916,7 +916,42 @@ events.commands.map(async (command) => {
   }
 });
 
+// In-memory reply tracker
+const replyTrackers = new Map();
 
+/**
+ * Add a reply tracker for a specific message ID
+ * @param {string} messageId - Message ID to track
+ * @param {function} callback - Callback to call when a reply to this message ID is received
+ */
+conn.addReplyTracker = function (messageId, callback) {
+    replyTrackers.set(messageId, callback);
+};
+
+// Listener to intercept incoming messages and check if they are replies
+conn.ev.on('messages.upsert', async (msg) => {
+    try {
+        const message = msg.messages?.[0];
+        if (!message || !message.message || message.key.fromMe) return;
+
+        const replyToId = message.message?.extendedTextMessage?.contextInfo?.stanzaId
+                       || message.message?.contextInfo?.stanzaId;
+
+        if (replyToId && replyTrackers.has(replyToId)) {
+            const replyText = message.message.conversation
+                           || message.message.extendedTextMessage?.text
+                           || "";
+
+            const handler = replyTrackers.get(replyToId);
+            replyTrackers.delete(replyToId); // remove to avoid duplicate
+            if (handler) {
+                await handler(message, replyText);
+            }
+        }
+    } catch (e) {
+        console.error("💥 Error in reply tracker:", e.message);
+    }
+});
 
 
 
